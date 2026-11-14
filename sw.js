@@ -5,20 +5,20 @@
 //
 // When you deploy changes, bump VERSION so phones get the update.
 // ============================================================
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.0.1';
 const CACHE = `365days-${VERSION}`;
 const FILES = [
   './',
   './index.html',
-  './css/styles.css',
-  './js/app.js',
-  './js/db.js',
-  './js/zip.js',
-  './js/video.js',
+  './styles.css',
+  './app.js',
+  './db.js',
+  './zip.js',
+  './video.js',
   './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/apple-touch-icon.png',
+  './icon-192.png',
+  './icon-512.png',
+  './apple-touch-icon.png',
 ];
 
 self.addEventListener('install', event => {
