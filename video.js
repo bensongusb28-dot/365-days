@@ -58,11 +58,11 @@ function caption(ctx, entry) {
   ctx.fillText(d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' }), 48, H - 92);
   ctx.font = '500 26px -apple-system, system-ui, sans-serif';
   ctx.globalAlpha = 0.8;
-  ctx.fillText(d.toLocaleDateString(undefined, { weekday: 'long' }), 50, H - 52);
+  ctx.fillText(d.toLocaleDateString(undefined, { weekday: 'long' }) + (entry.label ? ` · ${entry.label}` : ''), 50, H - 52);
   ctx.globalAlpha = 1;
 }
 
-function titleCard(ctx, year, count, t) {
+function titleCard(ctx, title, count, t) {
   ctx.fillStyle = '#121110';
   ctx.fillRect(0, 0, W, H);
   ctx.globalAlpha = Math.min(1, t * 3);
@@ -71,8 +71,8 @@ function titleCard(ctx, year, count, t) {
   ctx.font = '600 30px -apple-system, system-ui, sans-serif';
   ctx.fillText('365 DAYS', W / 2, H / 2 - 110);
   ctx.fillStyle = '#F3EFE8';
-  ctx.font = '600 170px ui-serif, "New York", Georgia, serif';
-  ctx.fillText(String(year), W / 2, H / 2 + 40);
+  ctx.font = '600 150px ui-serif, "New York", Georgia, serif';
+  ctx.fillText(title, W / 2, H / 2 + 40);
   ctx.font = '400 32px -apple-system, system-ui, sans-serif';
   ctx.fillStyle = 'rgba(243,239,232,.7)';
   ctx.fillText(`${count} days, one photo each`, W / 2, H / 2 + 110);
@@ -80,27 +80,27 @@ function titleCard(ctx, year, count, t) {
   ctx.globalAlpha = 1;
 }
 
-function endCard(ctx, year, t) {
+function endCard(ctx, endLine, t) {
   ctx.fillStyle = '#121110';
   ctx.fillRect(0, 0, W, H);
   ctx.globalAlpha = Math.min(1, t * 3);
   ctx.textAlign = 'center';
   ctx.fillStyle = '#F3EFE8';
   ctx.font = 'italic 600 64px ui-serif, "New York", Georgia, serif';
-  ctx.fillText('What a year.', W / 2, H / 2);
+  ctx.fillText('What a journey.', W / 2, H / 2);
   ctx.font = '400 30px -apple-system, system-ui, sans-serif';
   ctx.fillStyle = 'rgba(243,239,232,.6)';
-  ctx.fillText(`See you in ${year + 1}`, W / 2, H / 2 + 70);
+  ctx.fillText(endLine, W / 2, H / 2 + 70);
   ctx.textAlign = 'start';
   ctx.globalAlpha = 1;
 }
 
 /**
  * entries: sorted entries that have a photo
- * opts: { canvas, year, secondsPer, record, onProgress, signal }
+ * opts: { canvas, title, endLine, secondsPer, record, onProgress, signal }
  * returns { blob, mimeType } when recording, otherwise null
  */
-export async function playYear(entries, { canvas, year, secondsPer = 0.5, record = true, onProgress = () => {}, signal }) {
+export async function playYear(entries, { canvas, title, endLine, secondsPer = 0.5, record = true, onProgress = () => {}, signal }) {
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext('2d');
@@ -135,12 +135,12 @@ export async function playYear(entries, { canvas, year, secondsPer = 0.5, record
     }
   };
 
-  titleCard(ctx, year, entries.length, 0);
+  titleCard(ctx, title, entries.length, 0);
   recorder?.start(1000);
 
   try {
     await load(0); load(1); load(2);
-    await timed(2.2, t => titleCard(ctx, year, entries.length, t));
+    await timed(2.2, t => titleCard(ctx, title, entries.length, t));
 
     const fade = Math.min(0.35, secondsPer * 0.3);
     for (let i = 0; i < entries.length; i++) {
@@ -164,7 +164,7 @@ export async function playYear(entries, { canvas, year, secondsPer = 0.5, record
       onProgress((i + 1) / entries.length);
     }
 
-    await timed(2.2, t => endCard(ctx, year, t));
+    await timed(2.2, t => endCard(ctx, endLine, t));
   } catch (err) {
     if (recorder && recorder.state !== 'inactive') recorder.stop();
     cache.forEach(p => p.then(b => b?.close?.()));

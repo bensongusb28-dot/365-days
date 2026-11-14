@@ -18,8 +18,11 @@ const keyOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate(
 const parseKey = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
 const todayKey = () => keyOf(new Date());
 const addDays = (k, n) => { const d = parseKey(k); d.setDate(d.getDate() + n); return keyOf(d); };
-const dayOfYear = k => { const d = parseKey(k); return Math.round((d - new Date(d.getFullYear(), 0, 1)) / 864e5) + 1; };
-const daysInYear = y => (new Date(y, 1, 29).getMonth() === 1 ? 366 : 365);
+// Day numbers count from YOUR Day 1 (settings.startDate), not from January 1.
+// dayNum is 1 on the start date; 0 or less means "before Day 1".
+const dayNum = k => Math.round((parseKey(k) - parseKey(settings.startDate || todayKey())) / 864e5) + 1;
+const dayTag = k => (dayNum(k) >= 1 ? ` · Day ${dayNum(k)}` : '');
+const roundOf = k => (dayNum(k) >= 1 ? Math.floor((dayNum(k) - 1) / 365) + 1 : 0); // 365-day "years" of the project
 const fmt = (k, o) => parseKey(k).toLocaleDateString(undefined, o);
 const isDateKey = k => /^\d{4}-\d{2}-\d{2}$/.test(k);
 
@@ -27,7 +30,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 
 // ---------- Settings (small, kept in localStorage) ----------
 const SETTINGS_KEY = 'days365.settings';
-const defaults = { theme: 'auto', reminderTime: '20:00', lastBackup: 0, lockHash: '', lockSalt: '', hideInstall: false, backupDismissedAt: 0 };
+const defaults = { startDate: '', theme: 'auto', reminderTime: '20:00', lastBackup: 0, lockHash: '', lockSalt: '', hideInstall: false, backupDismissedAt: 0 };
 const settings = { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
 const saveSettings = () => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 
@@ -74,9 +77,8 @@ function streaks() {
     best = Math.max(best, run);
     prev = d;
   }
-  const year = new Date().getFullYear();
-  const thisYear = [...state.entries.keys()].filter(d => d.startsWith(year + '-') && hasPhoto(d)).length;
-  return { current, best, thisYear };
+  const total = [...state.entries.keys()].filter(d => hasPhoto(d) && dayNum(d) >= 1).length;
+  return { current, best, total };
 }
 
 // ---------- Toast ----------
@@ -218,21 +220,21 @@ function wireBanners(root) {
 // ---------- Day / Today screen ----------
 function renderDay(date, isToday) {
   const entry = state.entries.get(date) || { date, text: '' };
-  const year = parseKey(date).getFullYear();
+  const n = dayNum(date);
   const s = streaks();
 
   const head = isToday
     ? `<div class="eyebrow">${fmt(date, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-       <h1 class="display">Day ${dayOfYear(date)} <span class="of">of ${daysInYear(year)}</span></h1>`
+       <h1 class="display">Day ${n}${n <= 365 ? ' <span class="of">of 365</span>' : ''}</h1>`
     : `<button class="back" id="back">‹ Back</button>
-       <div class="eyebrow">${fmt(date, { weekday: 'long' })} · Day ${dayOfYear(date)}</div>
+       <div class="eyebrow">${fmt(date, { weekday: 'long' })}${dayTag(date)}</div>
        <h1 class="display">${fmt(date, { month: 'long', day: 'numeric', year: 'numeric' })}</h1>`;
 
   const stats = isToday ? `
     <div class="stats">
       <div class="stat flame"><b>${s.current}</b><span>🔥 day streak</span></div>
       <div class="stat"><b>${s.best}</b><span>best streak</span></div>
-      <div class="stat"><b>${s.thisYear}</b><span>photos in ${new Date().getFullYear()}</span></div>
+      <div class="stat"><b>${s.total}</b><span>photos so far</span></div>
     </div>` : '';
 
   const photo = entry.photo
@@ -381,7 +383,7 @@ function renderCalendar() {
     <div class="stats">
       <div class="stat"><b>${captured}<span class="of" style="font-size:16px">/${elapsed}</span></b><span>days this month</span></div>
       <div class="stat flame"><b>${s.current}</b><span>🔥 streak</span></div>
-      <div class="stat"><b>${s.thisYear}</b><span>this year</span></div>
+      <div class="stat"><b>${s.total}</b><span>photos so far</span></div>
     </div>
     <div class="month-nav">
       <button id="prev" aria-label="Previous month">‹</button>
@@ -430,7 +432,7 @@ function renderTimeline() {
     }
     html += `<a class="card tl-item" href="#/day/${d}">
       ${e.photo ? `<div class="ph"><img data-date="${d}" alt="" ${e.thumb ? `src="${thumbURL(d)}"` : ''}></div>` : ''}
-      <div class="body"><div class="date">${fmt(d, { weekday: 'short', month: 'short', day: 'numeric' })} · Day ${dayOfYear(d)}</div>
+      <div class="body"><div class="date">${fmt(d, { weekday: 'short', month: 'short', day: 'numeric' })}${dayTag(d)}</div>
       ${e.text?.trim() ? `<p>${esc(e.text.trim())}</p>` : '<p class="muted" style="font-family:var(--sans);font-size:15px">No words this day.</p>'}</div></a>`;
   }
   app.innerHTML = html;
@@ -450,7 +452,9 @@ function renderTimeline() {
 
 // ---------- More / Settings ----------
 async function renderSettings() {
-  const years = [...new Set([...state.entries.keys()].filter(hasPhoto).map(d => d.slice(0, 4)))].sort().reverse();
+  const photoDates = [...state.entries.keys()].filter(hasPhoto);
+  const rounds = [...new Set(photoDates.map(roundOf).filter(r => r >= 1))].sort((a, b) => b - a);
+  const roundLabel = r => (r === 1 ? 'Days 1–365' : `Days ${(r - 1) * 365 + 1}–${r * 365}`);
   const canRecord = !!pickMimeType();
   let storageText = '';
   try {
@@ -462,13 +466,19 @@ async function renderSettings() {
   app.innerHTML = `
     <header class="page-head"><div><div class="eyebrow">More</div><h1 class="display">Settings</h1></div></header>
 
-    <h3>Year in review</h3>
+    <h3>Your 365 days</h3>
     <div class="group">
-      <div class="row"><span class="label">Year</span>
-        <select id="vYear">${years.length ? years.map(y => `<option>${y}</option>`).join('') : '<option disabled>No photos yet</option>'}</select></div>
+      <div class="row"><span class="label">Day 1 is<small>Day numbers count from this date</small></span>
+        <input type="date" id="startDate" value="${settings.startDate}" max="${todayKey()}"></div>
+    </div>
+
+    <h3>Slideshow video</h3>
+    <div class="group">
+      <div class="row"><span class="label">Photos</span>
+        <select id="vYear">${photoDates.length ? rounds.map(r => `<option value="${r}">${roundLabel(r)}</option>`).join('') + '<option value="all">Every photo</option>' : '<option disabled>No photos yet</option>'}</select></div>
       <div class="row"><span class="label">Time per photo</span>
         <select id="vSpeed"><option value="0.3">Fast (0.3s)</option><option value="0.5" selected>Normal (0.5s)</option><option value="1">Slow (1s)</option><option value="2">Very slow (2s)</option></select></div>
-      <button class="row action" id="makeVideo" ${years.length ? '' : 'disabled'}>${canRecord ? 'Create video' : 'Play slideshow'}<span class="chev">›</span></button>
+      <button class="row action" id="makeVideo" ${photoDates.length ? '' : 'disabled'}>${canRecord ? 'Create video' : 'Play slideshow'}<span class="chev">›</span></button>
     </div>
     <p class="note" id="vNote"></p>
 
@@ -508,10 +518,15 @@ async function renderSettings() {
   `;
 
   $('#vNote').textContent = canRecord
-    ? 'Plays your year and records it as a video you can save to Photos. Keep the app open while it records.'
+    ? 'Plays your photos in order and records it as a video you can save to Photos. Keep the app open while it records.'
     : 'This browser can’t record video, so you’ll get a full-screen slideshow instead.';
 
   $('#makeVideo').onclick = () => yearInReview($('#vYear').value, Number($('#vSpeed').value), canRecord);
+  $('#startDate').onchange = e => {
+    const v = e.target.value;
+    if (!isDateKey(v) || v > todayKey()) { e.target.value = settings.startDate; return; }
+    settings.startDate = v; saveSettings(); toast(`Day 1 is ${fmt(v, { month: 'short', day: 'numeric', year: 'numeric' })}`); renderSettings();
+  };
   $('#rTime').onchange = e => { settings.reminderTime = e.target.value; saveSettings(); };
   $('#addReminder').onclick = reminderSheet;
   $$('#theme button').forEach(b => b.onclick = () => { settings.theme = b.dataset.t; saveSettings(); applyTheme(); renderSettings(); });
@@ -599,7 +614,7 @@ async function exportAll() {
 
   const dates = [...state.entries.keys()].sort();
   const files = [];
-  const json = { app: '365 Days', format: 1, exportedAt: new Date().toISOString(), entries: [] };
+  const json = { app: '365 Days', format: 1, exportedAt: new Date().toISOString(), startDate: settings.startDate, entries: [] };
   for (const d of dates) {
     const e = state.entries.get(d);
     if (e.photo) files.push({ name: `photos/${d}.jpg`, data: e.photo });
@@ -670,6 +685,7 @@ async function restoreFrom(file) {
       }
       $('#rBar', sh2).style.width = `${(++n / entries.length) * 100}%`;
     }
+    if (isDateKey(data.startDate || '') && (!settings.startDate || data.startDate < settings.startDate)) { settings.startDate = data.startDate; saveSettings(); }
     requestPersistence();
     sh2.remove();
     toast(`Restored ${n} days`);
@@ -684,8 +700,14 @@ async function restoreFrom(file) {
 // ============================================================
 // Year in review (video / slideshow)
 // ============================================================
-async function yearInReview(year, secondsPer, record) {
-  const list = [...state.entries.values()].filter(e => e.photo && e.date.startsWith(year + '-')).sort((a, b) => a.date.localeCompare(b.date));
+async function yearInReview(which, secondsPer, record) {
+  const all = which === 'all';
+  const list = [...state.entries.values()]
+    .filter(e => e.photo && (all || roundOf(e.date) === Number(which)))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(e => ({ ...e, label: dayNum(e.date) >= 1 ? `Day ${dayNum(e.date)}` : '' }));
+  const title = all ? 'My Days' : `Year ${which}`;
+  const endLine = all ? 'One photo. Every day.' : `On to year ${Number(which) + 1}`;
   if (!list.length) return;
   const total = Math.round(list.length * secondsPer + 4.4);
 
@@ -693,7 +715,7 @@ async function yearInReview(year, secondsPer, record) {
   const wrap = document.createElement('div');
   wrap.className = 'player';
   wrap.innerHTML = `<canvas></canvas><div class="progress"><i></i></div>
-    <div class="status">${record ? `Recording ${list.length} photos · about ${Math.floor(total / 60)}m ${total % 60}s. Keep the app open.` : 'Playing your year'}</div>
+    <div class="status">${record ? `Recording ${list.length} photos · about ${Math.floor(total / 60)}m ${total % 60}s. Keep the app open.` : 'Playing your photos'}</div>
     <div class="ctrls"><button class="btn secondary" id="stop">Cancel</button></div>`;
   document.body.appendChild(wrap);
 
@@ -707,7 +729,7 @@ async function yearInReview(year, secondsPer, record) {
 
   try {
     const result = await playYear(list, {
-      canvas: $('canvas', wrap), year: Number(year), secondsPer, record, signal: ctrl.signal,
+      canvas: $('canvas', wrap), title, endLine, secondsPer, record, signal: ctrl.signal,
       onProgress: p => ($('.progress i', wrap).style.width = `${p * 100}%`),
     });
     wake?.release?.();
@@ -718,7 +740,7 @@ async function yearInReview(year, secondsPer, record) {
     wrap.innerHTML = `<video src="${url}" controls playsinline autoplay></video>
       <div class="status">${(result.blob.size / 1048576).toFixed(1)} MB · ${ext.toUpperCase()}</div>
       <div class="ctrls"><button class="btn secondary" id="done">Done</button><button class="btn" id="save">Save video</button></div>`;
-    $('#save', wrap).onclick = () => saveFile(result.blob, `365-days-${year}.${ext}`);
+    $('#save', wrap).onclick = () => saveFile(result.blob, `365-days-${all ? 'all' : 'year-' + which}.${ext}`);
     $('#done', wrap).onclick = () => { URL.revokeObjectURL(url); close(); };
   } catch (err) {
     if (err.name !== 'AbortError') { console.error(err); alert('The video couldn’t be finished: ' + err.message); }
@@ -833,6 +855,13 @@ async function start() {
     console.error(err);
     app.innerHTML = '<div class="empty"><div class="big">Storage unavailable</div>Private Browsing blocks saving. Please open 365 Days in a normal Safari tab or from your Home Screen.</div>';
     return;
+  }
+  // First launch: Day 1 is today (or your earliest photo, if you already have some).
+  // Change it any time in More → "Day 1 is".
+  if (!isDateKey(settings.startDate)) {
+    const first = [...state.entries.keys()].filter(hasPhoto).sort()[0];
+    settings.startDate = first && first < todayKey() ? first : todayKey();
+    saveSettings();
   }
   window.addEventListener('hashchange', route);
   route();

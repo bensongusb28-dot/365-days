@@ -158,7 +158,7 @@ h3 { font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: u
 .row .label small { display: block; color: var(--ink-2); font-size: 13px; margin-top: 2px; }
 .row .chev { color: var(--ink-3); }
 .row.action { color: var(--accent); font-weight: 600; }
-.row select, .row input[type="time"] { border: 0; background: var(--surface-2); border-radius: 10px; padding: 6px 10px; font-size: 16px; }
+.row select, .row input[type="time"], .row input[type="date"] { border: 0; background: var(--surface-2); border-radius: 10px; padding: 6px 10px; font-size: 16px; }
 .note { font-size: 13px; color: var(--ink-2); padding: 8px 6px 0; line-height: 1.45; }
 
 .seg { display: inline-flex; background: var(--surface-2); border-radius: 10px; padding: 2px; }
