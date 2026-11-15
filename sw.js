@@ -5,7 +5,7 @@
 //
 // When you deploy changes, bump VERSION so phones get the update.
 // ============================================================
-const VERSION = 'v1.1.0';
+const VERSION = 'v1.2.0';
 const CACHE = `365days-${VERSION}`;
 const FILES = [
   './',
@@ -15,6 +15,7 @@ const FILES = [
   './db.js',
   './zip.js',
   './video.js',
+  './projects.js',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',

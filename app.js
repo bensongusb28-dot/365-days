@@ -7,6 +7,7 @@
 import * as db from './db.js';
 import { createZip, readZip } from './zip.js';
 import { playYear, pickMimeType } from './video.js';
+import { PROJECTS, phasesFor } from './projects.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -450,6 +451,146 @@ function renderTimeline() {
   $$('img[data-date]').forEach(img => lazyObserver.observe(img));
 }
 
+// ============================================================
+// Projects — build checklists for the 5 websites and 5 apps.
+// The steps live in projects.js. What you've ticked off is kept
+// in localStorage and included in backups.
+// ============================================================
+const PROJ_KEY = 'days365.projects';
+const proj = { done: {}, custom: {}, ...JSON.parse(localStorage.getItem(PROJ_KEY) || '{}') };
+const saveProj = () => localStorage.setItem(PROJ_KEY, JSON.stringify(proj));
+const stepKey = (p, phase, text) => `${p.id}|${phase}|${text}`;
+
+function projectPhases(p) {
+  const phases = phasesFor(p);
+  phases.push({ name: 'My own steps', steps: proj.custom[p.id] || [], custom: true });
+  return phases;
+}
+function projectProgress(p) {
+  let done = 0, total = 0, next = null;
+  for (const ph of projectPhases(p)) {
+    for (const st of ph.steps) {
+      total++;
+      if (proj.done[stepKey(p, ph.name, st)]) done++;
+      else if (!next) next = { phase: ph.name, text: st };
+    }
+  }
+  return { done, total, pct: total ? Math.round((done / total) * 100) : 0, next };
+}
+
+function renderProjects() {
+  const card = p => {
+    const g = projectProgress(p);
+    return `<a class="card proj" href="#/project/${p.id}">
+      <div class="proj-top"><b>${esc(p.name)}</b><span class="muted small">${g.done}/${g.total}</span></div>
+      <div class="small muted">${esc(p.tagline)}</div>
+      <div class="progress"><i style="width:${g.pct}%"></i></div>
+      <div class="small proj-next">${g.done === g.total ? '✓ All steps done' : `<span class="muted">Next:</span> ${esc(g.next.text)}`}</div>
+    </a>`;
+  };
+  const all = PROJECTS.map(projectProgress);
+  const done = all.reduce((n, g) => n + g.done, 0), total = all.reduce((n, g) => n + g.total, 0);
+  const started = all.filter(g => g.done > 0).length, finished = all.filter(g => g.done === g.total).length;
+  app.innerHTML = `
+    <header class="page-head"><div><div class="eyebrow">Projects</div><h1 class="display">Build <span class="of">${PROJECTS.length} ideas</span></h1></div></header>
+    <div class="stats">
+      <div class="stat"><b>${done}<span class="of" style="font-size:16px">/${total}</span></b><span>steps done</span></div>
+      <div class="stat"><b>${started}</b><span>started</span></div>
+      <div class="stat"><b>${finished}</b><span>launched</span></div>
+    </div>
+    <h3>Apps</h3>${PROJECTS.filter(p => p.type === 'app').map(card).join('')}
+    <h3>Websites</h3>${PROJECTS.filter(p => p.type === 'web').map(card).join('')}
+    <p class="legend">Tap a project to see its steps. Finish one before starting the next.</p>`;
+}
+
+const openPhases = {}; // remembers which sections you left open: { projectId: Set(phaseName) }
+function renderProject(id) {
+  const p = PROJECTS.find(x => x.id === id);
+  if (!p) { location.hash = '#/projects'; return; }
+  const phases = projectPhases(p);
+  const g = projectProgress(p);
+  if (!openPhases[id]) openPhases[id] = new Set(g.next ? [g.next.phase] : []);
+
+  const phaseHTML = ph => {
+    const n = ph.steps.filter(st => proj.done[stepKey(p, ph.name, st)]).length;
+    const steps = ph.steps.map(st => {
+      const k = stepKey(p, ph.name, st);
+      return `<label class="step ${proj.done[k] ? 'done' : ''}"><input type="checkbox" data-k="${esc(k)}" ${proj.done[k] ? 'checked' : ''}><span>${esc(st)}</span>${ph.custom ? `<button class="x" data-del="${esc(st)}" aria-label="Remove step">✕</button>` : ''}</label>`;
+    }).join('');
+    const add = ph.custom ? `<form class="add-step"><input type="text" placeholder="Add your own step" aria-label="Add your own step" maxlength="200"><button>Add</button></form>` : '';
+    return `<details class="group phase" data-phase="${esc(ph.name)}" ${openPhases[id].has(ph.name) ? 'open' : ''}>
+      <summary><span class="label">${esc(ph.name)}</span><span class="count ${n === ph.steps.length && n ? 'all' : ''}">${n}/${ph.steps.length}</span><span class="chev">›</span></summary>
+      ${steps}${add}</details>`;
+  };
+
+  app.innerHTML = `
+    <button class="back" id="back">‹ Projects</button>
+    <header class="page-head"><div><div class="eyebrow">${p.type === 'app' ? 'App' : 'Website'} · ${esc(p.price)} · ${esc(p.time)}</div>
+      <h1 class="display">${esc(p.name)}</h1><div class="muted" style="margin-top:6px">${esc(p.tagline)}</div></div></header>
+    <div class="card proj-summary">
+      <div class="proj-top"><b id="pPct">${g.pct}% built</b><span class="muted small" id="pCount">${g.done}/${g.total} steps</span></div>
+      <div class="progress"><i id="pBar" style="width:${g.pct}%"></i></div>
+      <div class="small proj-next" id="pNext"></div>
+    </div>
+    <h3>What it needs</h3>
+    <div class="chips">${p.needs.map(n => `<span>${esc(n)}</span>`).join('')}</div>
+    <h3>Steps</h3>
+    ${phases.map(phaseHTML).join('')}
+    <h3>Watch out for</h3>
+    <div class="group">${p.watch.map(w => `<div class="row"><span class="label small">${esc(w)}</span></div>`).join('')}</div>
+    <button class="danger-link" id="resetProj">Reset this project’s checkmarks</button>`;
+
+  const refresh = () => {
+    const g2 = projectProgress(p);
+    $('#pPct').textContent = `${g2.pct}% built`;
+    $('#pCount').textContent = `${g2.done}/${g2.total} steps`;
+    $('#pBar').style.width = g2.pct + '%';
+    $('#pNext').innerHTML = g2.next ? `<span class="muted">Next (${esc(g2.next.phase)}):</span> ${esc(g2.next.text)}` : '✓ All steps done';
+    $$('details.phase').forEach(d => {
+      const boxes = $$('input[type=checkbox]', d), n = boxes.filter(b => b.checked).length;
+      const c = $('.count', d);
+      c.textContent = `${n}/${boxes.length}`;
+      c.classList.toggle('all', n === boxes.length && n > 0);
+    });
+  };
+  refresh();
+
+  $('#back').onclick = () => (location.hash = '#/projects');
+  $$('details.phase').forEach(d => d.addEventListener('toggle', () => {
+    d.open ? openPhases[id].add(d.dataset.phase) : openPhases[id].delete(d.dataset.phase);
+  }));
+  app.onchange = e => {
+    const k = e.target.dataset?.k;
+    if (!k) return;
+    if (e.target.checked) proj.done[k] = Date.now(); else delete proj.done[k];
+    saveProj();
+    e.target.closest('.step').classList.toggle('done', e.target.checked);
+    refresh();
+    const g2 = projectProgress(p);
+    if (e.target.checked && g2.done === g2.total) toast(`🎉 ${p.name} is fully built!`);
+  };
+  $('.add-step')?.addEventListener('submit', e => {
+    e.preventDefault();
+    const v = $('input', e.target).value.trim();
+    if (!v) return;
+    const list = (proj.custom[id] ||= []);
+    if (!list.includes(v)) list.push(v);
+    saveProj(); renderProject(id);
+  });
+  $$('[data-del]').forEach(b => b.onclick = e => {
+    e.preventDefault();
+    const text = b.dataset.del;
+    proj.custom[id] = (proj.custom[id] || []).filter(t => t !== text);
+    delete proj.done[stepKey(p, 'My own steps', text)];
+    saveProj(); renderProject(id);
+  });
+  $('#resetProj').onclick = () => {
+    if (!confirm(`Clear every checkmark for ${p.name}? Your own added steps stay.`)) return;
+    for (const k of Object.keys(proj.done)) if (k.startsWith(p.id + '|')) delete proj.done[k];
+    saveProj(); renderProject(id);
+  };
+}
+
 // ---------- More / Settings ----------
 async function renderSettings() {
   const photoDates = [...state.entries.keys()].filter(hasPhoto);
@@ -508,7 +649,7 @@ async function renderSettings() {
       <button class="row action" id="restore">Restore from a backup<span class="chev">›</span></button>
       <div class="row"><span class="label muted small">Last backup</span><span class="small muted">${settings.lastBackup ? new Date(settings.lastBackup).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never'}</span></div>
     </div>
-    <p class="note">Backups are a single .zip with all photos and entries. Choose <b>Save to Files → iCloud Drive</b> so they’re stored off your phone. You’ll get a nudge here every week.</p>
+    <p class="note">Backups are a single .zip with all photos, entries and project checkmarks. Choose <b>Save to Files → iCloud Drive</b> so they’re stored off your phone. You’ll get a nudge here every week.</p>
     <input type="file" id="restoreInput" accept=".zip,application/zip" hidden>
 
     <h3>Storage</h3>
@@ -614,7 +755,7 @@ async function exportAll() {
 
   const dates = [...state.entries.keys()].sort();
   const files = [];
-  const json = { app: '365 Days', format: 1, exportedAt: new Date().toISOString(), startDate: settings.startDate, entries: [] };
+  const json = { app: '365 Days', format: 1, exportedAt: new Date().toISOString(), startDate: settings.startDate, projects: proj, entries: [] };
   for (const d of dates) {
     const e = state.entries.get(d);
     if (e.photo) files.push({ name: `photos/${d}.jpg`, data: e.photo });
@@ -684,6 +825,11 @@ async function restoreFrom(file) {
         dropURLs(rec.date);
       }
       $('#rBar', sh2).style.width = `${(++n / entries.length) * 100}%`;
+    }
+    if (data.projects && typeof data.projects === 'object') {
+      Object.assign(proj.done, data.projects.done || {});
+      for (const [pid, list] of Object.entries(data.projects.custom || {})) proj.custom[pid] = [...new Set([...(proj.custom[pid] || []), ...list])];
+      saveProj();
     }
     if (isDateKey(data.startDate || '') && (!settings.startDate || data.startDate < settings.startDate)) { settings.startDate = data.startDate; saveSettings(); }
     requestPersistence();
@@ -832,15 +978,18 @@ async function lockIfNeeded() {
 function route() {
   const hash = location.hash || '#/today';
   const [, page, arg] = hash.split('/');
-  const tab = page === 'day' ? (arg === todayKey() ? 'today' : null) : page;
+  const tab = page === 'day' ? (arg === todayKey() ? 'today' : null) : page === 'project' ? 'projects' : page;
   $$('.tabbar a').forEach(a => a.classList.toggle('on', a.dataset.tab === (tab || (page === 'day' ? '' : 'today'))));
   currentSave = null;
   lazyObserver?.disconnect();
   window.scrollTo(0, 0);
+  app.onchange = null;
 
   if (page === 'day' && isDateKey(arg) && arg <= todayKey()) renderDay(arg, arg === todayKey());
   else if (page === 'calendar') renderCalendar();
   else if (page === 'timeline') renderTimeline();
+  else if (page === 'projects') renderProjects();
+  else if (page === 'project') renderProject(arg);
   else if (page === 'settings') renderSettings();
   else renderDay(todayKey(), true);
 }
